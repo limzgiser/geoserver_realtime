@@ -1,0 +1,46 @@
+{
+    "attribution": "RealtimeTileEngine",
+    "bounds": [
+        120.63522338867188,
+        31.238950729370117,
+        120.8575668334961,
+        31.426137924194336
+    ],
+    "center": [
+        120.74639511108398,
+        31.332544326782227,
+        10
+    ],
+    "format": "pbf",
+    "minzoom": 0,
+    "maxzoom": 16,
+    "name": "building",
+    "description": null,
+    "scheme": "tms",
+    "tilejson": "2.1.0",
+    "tiles": [
+        "http://localhost:8088/geoserver//gwc/service/tms/1.0.0/golang:building@EPSG:900913@pbf/{z}/{x}/{y}.pbf"
+    ],
+    "version": "2",
+    "template": null,
+    "legend": null,
+    "vector_layers": [
+        {
+            "id": "building",
+            "name": "building",
+            "description": "",
+            "fields": {
+                "height": "Number",
+                "jcnd": "String",
+                "ydlxdl": "String"
+            },
+            "geometry_type": "polygon",
+            "minzoom": 0,
+            "maxzoom": 16
+        }
+    ],
+    "tilestats": {
+        "layerCount": 0,
+        "layers": null
+    }
+}
