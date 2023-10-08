@@ -1,5 +1,9 @@
 package main
 
+import (
+	"path/filepath"
+)
+
 func GetGsFieldType(gsType string) string {
 	switch gsType {
 	case "Boolean":
@@ -9,4 +13,11 @@ func GetGsFieldType(gsType string) string {
 	default:
 		return "String"
 	}
+}
+func getGoGeoserverPackageDir() string {
+	dir, err := filepath.Abs("./")
+	if err != nil {
+		panic(err)
+	}
+	return dir
 }

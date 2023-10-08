@@ -12,9 +12,9 @@ import (
 
 var gsCatalog *geoserver.GeoServer
 
-var workSpace = "golang"
-var dataStore = "postgis_datastore"
-var tbName = "building" // building,gd,china_polygon
+var workSpace = "DXY"
+var dataStore = "db_gis"
+var tbName = "building" // building,gd,china_polygon,an_city,ah_polygon
 
 var host = "http://localhost:8088/geoserver/"
 
@@ -25,16 +25,14 @@ func main() {
 	// publishPostgisLayer()
 
 	// deleteLayer()
+	// getLayer(workSpace, tbName)
 
-	// r := gin.Default()
-	// r.GET("/tilejson", func(c *gin.Context) {
-	// 	getTileJSON(c)
-	// })
-	// r.Run()
-
+	r := gin.Default()
+	r.GET("/tilejson", func(c *gin.Context) {
+		getTileJSON(c)
+	})
+	r.Run()
 }
-
-
 
 func getTileJSON(c *gin.Context) {
 	layer, _ := gsCatalog.GetLayer(workSpace, tbName)
