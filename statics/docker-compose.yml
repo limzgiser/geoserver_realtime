@@ -6,8 +6,8 @@ version: '2.2'
 services:
    db:
       image: kartoza/postgis:14-3.1
-      volumes:
-         - /home/limingzhi/docker_data/geoserver/pg_db:/var/lib/postgresql
+      # volumes:
+        #  - /home/limingzhi/docker_data/geoserver/pg_db:/var/lib/postgresql
       ports:
         - 5432:5432
       environment:
@@ -22,15 +22,17 @@ services:
    geoserver:
       image: kartoza/geoserver:2.23.2
       volumes:
-        - /home/limingzhi/docker_data/geoserver/data_dir:/data_dir
+        - /home/limingzhi/docker_data/geoserver/geotmp:/data_dir
+        - /home/limingzhi/docker_data/geoserver/data_dir:/opt/geoserver/data_dir/data
         - /home/limingzhi/docker_data/geoserver/cache_dir:/opt/geoserver/data_dir/gwc
       ports:
         - 8088:8080
       restart: on-failure
       environment:
         - GEOSERVER_DATA_DIR=/opt/geoserver/data_dir
-        - GEOSERVER_ADMIN_PASSWORD=****
-        - GEOSERVER_ADMIN_USER=****
+        - GEOSERVER_ADMIN_USER=dxy123
+        - GEOSERVER_ADMIN_PASSWORD=dxy
+        
       depends_on:
         db:
           condition: service_healthy

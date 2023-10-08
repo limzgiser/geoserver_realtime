@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"strconv"
+	"path/filepath"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -12,30 +12,172 @@ import (
 
 var gsCatalog *geoserver.GeoServer
 
-var workSpace = "DXY"
-var dataStore = "db_gis"
-var tbName = "building" // building,gd,china_polygon,an_city,ah_polygon
-
-var host = "http://localhost:8088/geoserver/"
-
 func main() {
 
-	gsCatalog = geoserver.GetCatalog(host, "admin", "geoserver")
+	gsCatalog = geoserver.GetCatalog(GeoHost, GeoUser, GeoPassword)
 
-	// publishPostgisLayer()
+	_init()
 
-	// deleteLayer()
-	// getLayer(workSpace, tbName)
+	router := gin.Default()
 
-	r := gin.Default()
-	r.GET("/tilejson", func(c *gin.Context) {
-		getTileJSON(c)
+	router.POST("/geoserver/layer", func(ctx *gin.Context) {
+		layerName := ctx.PostForm("layerName")
+		geoType := ctx.PostForm("type") // pg shp tiff
+
+		if geoType == "pg" {
+			publishPostgisLayer(ctx, layerName)
+			return
+		}
+
+		if geoType == "shp" {
+			uploadShpfile(ctx, layerName)
+			return
+		}
+
+		if geoType == "tiff" {
+			publishGeoTiffLayer(ctx, layerName)
+			return
+		}
+		ctx.JSON(500, gin.H{
+			"status": 500,
+			"data":   "error",
+		})
 	})
-	r.Run()
+
+	router.DELETE("/geoserver/layer/:layerName", func(ctx *gin.Context) {
+		layerName := ctx.Param("layerName")
+		deleteLayer(ctx, layerName)
+	})
+
+	router.GET("/geoserver/tilejson", func(ctx *gin.Context) {
+		layerName := ctx.Query("layerName")
+		getTileJSON(ctx, layerName)
+	})
+
+	router.Run()
+
 }
 
-func getTileJSON(c *gin.Context) {
-	layer, _ := gsCatalog.GetLayer(workSpace, tbName)
+func _init() {
+
+	// 矢量workspace
+	_, err1 := gsCatalog.GetWorkspace(GeoWorkSpace)
+	if err1 != nil {
+		_, err := gsCatalog.CreateWorkspace(GeoWorkSpace)
+		if err == nil {
+			fmt.Println("创建矢量工作空间成功!")
+		}
+	}
+	// 栅格
+	_, err2 := gsCatalog.GetWorkspace(CoverageWorkSpace)
+	if err2 != nil {
+		_, err := gsCatalog.CreateWorkspace(CoverageWorkSpace)
+		if err == nil {
+			fmt.Println("创建栅格工作空间成功!")
+		}
+	}
+
+	_, d_err := gsCatalog.GetDatastoreDetails(GeoWorkSpace, DataStoreName)
+
+	if d_err != nil {
+		_, err := gsCatalog.CreateDatastore(DataStoreConnect, GeoWorkSpace)
+		if err != nil {
+			fmt.Println("创建链接失败")
+			return
+		}
+		fmt.Println("创建链接成功！")
+	}
+}
+
+func publishPostgisLayer(ctx *gin.Context, layerName string) {
+
+	_, dbErr := gsCatalog.PublishPostgisLayer(GeoWorkSpace, DataStoreName, layerName, layerName)
+	if dbErr != nil {
+		fmt.Println("发布图层失败!")
+		ctx.JSON(500, gin.H{
+			"status": 500,
+			"data":   "",
+		})
+		return
+	}
+	ctx.JSON(200, gin.H{
+		"status": 200,
+		"data":   layerName,
+	})
+
+}
+
+func uploadShpfile(ctx *gin.Context, layerName string) {
+	zippedShapefile := filepath.Join(getGoGeoserverPackageDir(), "/statics/shp/", layerName /**"shpp2.zip"*/)
+	_, err := gsCatalog.UploadShapeFile(zippedShapefile, GeoWorkSpace, "")
+	if err != nil {
+		ctx.JSON(500, gin.H{
+			"status": 500,
+			"data":   "",
+		})
+		return
+	}
+	ctx.JSON(200, gin.H{
+		"status": 200,
+		"data":   layerName,
+	})
+}
+
+func publishGeoTiffLayer(ctx *gin.Context, layerName string) {
+
+	//1.上传tiff文件到容器目录
+	//2. 创建store
+	//3. 发布服务
+	url := "/data_dir/" + layerName + ".tif"
+	coverageStore := geoserver.CoverageStore{
+
+		Name: layerName,
+		Type: "GeoTIFF",
+		URL:  url,
+		Workspace: &geoserver.Resource{
+			Name: CoverageWorkSpace,
+		},
+		Enabled: true,
+	}
+	_, err := gsCatalog.CreateCoverageStore(CoverageWorkSpace, coverageStore)
+	if err != nil && !strings.Contains(err.Error(), "exists") {
+
+		fmt.Println("创建CoverageStore失败")
+		return
+
+	}
+	_, err2 := gsCatalog.PublishGeoTiffLayer(CoverageWorkSpace, layerName, layerName, layerName)
+	if err2 != nil {
+		ctx.JSON(500, gin.H{
+			"status": 500,
+			"data":   "",
+		})
+		return
+	}
+	ctx.JSON(200, gin.H{
+		"status": 200,
+		"data":   layerName,
+	})
+
+}
+
+func deleteLayer(ctx *gin.Context, layerName string) {
+	_, err := gsCatalog.DeleteLayer(GeoWorkSpace, layerName, true)
+	if err != nil {
+		ctx.JSON(500, gin.H{
+			"status": 500,
+			"data":   "",
+		})
+		return
+	}
+	ctx.JSON(200, gin.H{
+		"status": 200,
+		"data":   layerName,
+	})
+}
+
+func getTileJSON(c *gin.Context, layerName string) {
+	layer, _ := gsCatalog.GetLayer(GeoWorkSpace, layerName)
 	gz, minz, maxz := 10, 0, 22
 	gt := TsPoint
 	attribution := "RealtimeTileEngine"
@@ -43,7 +185,8 @@ func getTileJSON(c *gin.Context) {
 	vtLyrs := []VectorLayer{}
 	switch layer.Type {
 	case "VECTOR":
-		ft, _ := gsCatalog.GetFeatureType(workSpace, dataStore, tbName)
+		// 如果是shp数据元，这个DataStoreName 是动态变的，目前使用的是文件名
+		ft, _ := gsCatalog.GetFeatureType(GeoWorkSpace, DataStoreName, layerName)
 
 		minx = ft.NativeBoundingBox.Minx
 		miny = ft.NativeBoundingBox.Miny
@@ -102,7 +245,7 @@ func getTileJSON(c *gin.Context) {
 		Data:         make([]string, 0),
 		VectorLayers: vtLyrs,
 	}
-	tileUrl := fmt.Sprintf("%s/gwc/service/tms/1.0.0/%s:%s@EPSG:900913@pbf/{z}/{x}/{y}.pbf", host, workSpace, tbName)
+	tileUrl := fmt.Sprintf("%s/gwc/service/tms/1.0.0/%s:%s@EPSG:900913@pbf/{z}/{x}/{y}.pbf", GeoHost, GeoWorkSpace, layerName)
 	tileJSON.Tiles = append(tileJSON.Tiles, tileUrl)
 
 	//cache control headers (no-cache )
@@ -111,85 +254,39 @@ func getTileJSON(c *gin.Context) {
 	c.JSON(http.StatusOK, tileJSON)
 }
 
-func deleteLayer() {
-	_, err := gsCatalog.DeleteLayer(workSpace, tbName, true)
-	if err == nil {
-		fmt.Println("删除成功!", workSpace+":"+tbName)
-	}
-}
+// // 创建workspace
+// func createWorkSpace(workspaceName string) {
 
-func publishPostgisLayer() {
-	_, e := gsCatalog.GetWorkspace(workSpace)
-	if e != nil {
-		_, ee := gsCatalog.CreateWorkspace(workSpace)
-		if ee == nil {
-			fmt.Println("创建工作空间成功!")
-		}
-	}
+// 	_, err := gsCatalog.GetWorkspace(workspaceName)
 
-	conn := geoserver.DatastoreConnection{
-		Name:   dataStore,
-		Port:   5432,
-		Type:   "postgis",
-		Host:   "db",
-		DBName: "db_gis",
-		DBPass: "postgres",
-		DBUser: "postgres",
-	}
-	_, serr := gsCatalog.GetDatastoreDetails(workSpace, dataStore)
+// 	if err == nil {
+// 		return
+// 	}
+// 	created, err := gsCatalog.CreateWorkspace(workspaceName)
+// 	if err != nil {
+// 		fmt.Printf("\nError:%s\n", err)
+// 	}
+// 	fmt.Println(strconv.FormatBool(created))
+// }
 
-	if serr != nil {
-		_, err := gsCatalog.CreateDatastore(conn, workSpace)
-		if err != nil {
-			fmt.Println("创建链接失败")
-			return
-		}
-		fmt.Println("创建链接成功！")
-	}
+// // 获取图层列表
+// func getLayers() {
+// 	layers, err := gsCatalog.GetLayers("")
 
-	_, dbErr := gsCatalog.PublishPostgisLayer(workSpace, dataStore, tbName, tbName)
-	if dbErr != nil {
-		fmt.Println("发布图层失败!")
-		return
-	}
-	fmt.Println("发布图层成功!")
+// 	if err != nil {
+// 		fmt.Printf("\nError:%s\n", err)
+// 	}
+// 	for _, lyr := range layers {
+// 		fmt.Println(lyr)
+// 	}
+// }
 
-}
-
-// 创建workspace
-func createWorkSpace(workspaceName string) {
-
-	_, err := gsCatalog.GetWorkspace(workspaceName)
-
-	if err == nil {
-		return
-	}
-	created, err := gsCatalog.CreateWorkspace(workspaceName)
-	if err != nil {
-		fmt.Printf("\nError:%s\n", err)
-	}
-	fmt.Println(strconv.FormatBool(created))
-}
-
-// 获取图层列表
-func getLayers() {
-	layers, err := gsCatalog.GetLayers("")
-
-	if err != nil {
-		fmt.Printf("\nError:%s\n", err)
-	}
-	for _, lyr := range layers {
-		fmt.Println(lyr)
-	}
-}
-
-// 获取图层
-func getLayer(workspaceName string, layerName string) {
-	layer, err := gsCatalog.GetLayer(workspaceName, layerName)
-	if err != nil {
-		fmt.Printf("\nError:%s\n", err)
-	} else {
-		fmt.Printf("%+v\n", layer)
-	}
-
-}
+// // 获取图层
+// func getLayer(workspaceName string, layerName string) {
+// 	layer, err := gsCatalog.GetLayer(workspaceName, layerName)
+// 	if err != nil {
+// 		fmt.Printf("\nError:%s\n", err)
+// 	} else {
+// 		fmt.Printf("%+v\n", layer)
+// 	}
+// }
